@@ -1,0 +1,312 @@
+version: '3'
+
+vars:
+  APISERVER_IMG: '{{.APISERVER_IMG | default "insights-apiserver:latest"}}'
+  CONTROLLER_IMG: '{{.CONTROLLER_IMG | default "insights-controller:latest"}}'
+  ENVTEST_K8S_VERSION: '{{.ENVTEST_K8S_VERSION | default "1.32.0"}}'
+  CONTROLLER_GEN: ./bin/controller-gen
+  OPENAPI_GEN: ./bin/openapi-gen
+  ENVTEST: ./bin/setup-envtest
+  GOLANGCI_LINT_VERSION: v1.64.5
+  CLUSTER_NAME: '{{.CLUSTER_NAME | default "insights-dev"}}'
+  MODULE: github.com/datum-cloud/insights
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  # Kind cluster management
+  cluster-up:
+    desc: Create a Kind cluster for development
+    cmds:
+      - |
+        if kind get clusters | grep -q "^{{.CLUSTER_NAME}}$"; then
+          echo "Cluster {{.CLUSTER_NAME}} already exists"
+        else
+          kind create cluster --name {{.CLUSTER_NAME}} --wait 60s
+        fi
+      - kubectl cluster-info --context kind-{{.CLUSTER_NAME}}
+    status:
+      - kind get clusters | grep -q "^{{.CLUSTER_NAME}}$"
+
+  cluster-down:
+    desc: Delete the Kind cluster
+    cmds:
+      - kind delete cluster --name {{.CLUSTER_NAME}}
+
+  # Code generation
+  generate:
+    desc: Generate code (DeepCopy, RBAC, OpenAPI)
+    deps: [controller-gen, openapi-gen]
+    cmds:
+      - '{{.CONTROLLER_GEN}} object:headerFile="hack/boilerplate.go.txt" paths="./pkg/apis/..." paths="./internal/..."'
+      - |
+        {{.OPENAPI_GEN}} \
+          --output-dir ./pkg/generated/openapi \
+          --output-pkg {{.MODULE}}/pkg/generated/openapi \
+          --output-file zz_generated.openapi.go \
+          --report-filename /dev/null \
+          k8s.io/apimachinery/pkg/apis/meta/v1 \
+          k8s.io/apimachinery/pkg/runtime \
+          k8s.io/apimachinery/pkg/version \
+          k8s.io/apimachinery/pkg/api/resource \
+          {{.MODULE}}/pkg/apis/insights/v1alpha1
+    sources:
+      - pkg/apis/**/*.go
+      - internal/**/*.go
+    generates:
+      - pkg/generated/openapi/zz_generated.openapi.go
+
+  fmt:
+    desc: Run go fmt
+    cmds:
+      - go fmt ./...
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  # Testing
+  test:
+    desc: Run unit tests
+    deps: [envtest]
+    cmds:
+      - |
+        KUBEBUILDER_ASSETS="$({{.ENVTEST}} use {{.ENVTEST_K8S_VERSION}} --bin-dir ./bin -p path)" \
+        go test ./... -coverprofile cover.out -race
+    env:
+      CGO_ENABLED: "1"
+
+  test-cel:
+    desc: Run CEL template engine tests
+    cmds:
+      - go test ./internal/cel/... -v
+
+  test-e2e:
+    desc: Run e2e tests against cluster
+    cmds:
+      - go test ./test/e2e/... -v
+
+  # Building
+  build:
+    desc: Build all binaries (apiserver and controller)
+    deps: [build-apiserver, build-controller]
+
+  build-apiserver:
+    desc: Build apiserver binary
+    cmds:
+      - go build -o bin/insights-apiserver ./cmd/apiserver
+    sources:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - bin/insights-apiserver
+
+  build-controller:
+    desc: Build controller binary
+    cmds:
+      - go build -o bin/insights-controller ./cmd/controller
+    sources:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - bin/insights-controller
+
+  docker-build:
+    desc: Build all Docker images (apiserver and controller)
+    deps: [docker-build-apiserver, docker-build-controller]
+
+  docker-build-apiserver:
+    desc: Build apiserver Docker image
+    cmds:
+      - docker build -f Dockerfile.apiserver -t {{.APISERVER_IMG}} .
+
+  docker-build-controller:
+    desc: Build controller Docker image
+    cmds:
+      - docker build -f Dockerfile.controller -t {{.CONTROLLER_IMG}} .
+
+  docker-push:
+    desc: Push all Docker images
+    deps: [docker-push-apiserver, docker-push-controller]
+
+  docker-push-apiserver:
+    desc: Push apiserver Docker image
+    cmds:
+      - docker push {{.APISERVER_IMG}}
+
+  docker-push-controller:
+    desc: Push controller Docker image
+    cmds:
+      - docker push {{.CONTROLLER_IMG}}
+
+  # Deployment
+  install:
+    desc: Install apiserver into cluster
+    deps: [generate]
+    cmds:
+      - kustomize build config/apiserver | kubectl apply -f -
+
+  uninstall:
+    desc: Uninstall apiserver from cluster
+    cmds:
+      - kustomize build config/apiserver | kubectl delete --ignore-not-found -f -
+
+  deploy:
+    desc: Deploy apiserver and controller to cluster
+    deps: [generate]
+    cmds:
+      - cd config/apiserver && kustomize edit set image insights-apiserver={{.APISERVER_IMG}}
+      - cd config/controller && kustomize edit set image insights-controller={{.CONTROLLER_IMG}}
+      - kustomize build config/apiserver | kubectl apply -f -
+      - kustomize build config/controller | kubectl apply -f -
+
+  deploy-apiserver:
+    desc: Deploy apiserver only
+    deps: [generate]
+    cmds:
+      - cd config/apiserver && kustomize edit set image insights-apiserver={{.APISERVER_IMG}}
+      - kustomize build config/apiserver | kubectl apply -f -
+
+  deploy-controller:
+    desc: Deploy controller only
+    deps: [generate]
+    cmds:
+      - cd config/controller && kustomize edit set image insights-controller={{.CONTROLLER_IMG}}
+      - kustomize build config/controller | kubectl apply -f -
+
+  undeploy:
+    desc: Undeploy apiserver and controller from cluster
+    cmds:
+      - kustomize build config/controller | kubectl delete --ignore-not-found -f -
+      - kustomize build config/apiserver | kubectl delete --ignore-not-found -f -
+
+  # Development
+  run:
+    desc: Run apiserver locally against cluster
+    deps: [generate, install]
+    cmds:
+      - go run ./cmd/apiserver/main.go
+
+  run-controller:
+    desc: Run controller locally against cluster
+    deps: [generate]
+    cmds:
+      - go run ./cmd/controller/main.go --apiserver-url=https://localhost:8443
+
+  dev:
+    desc: Start Tilt development environment
+    deps: [cluster-up, build-dev]
+    cmds:
+      - tilt up
+
+  build-dev:
+    desc: Build binaries for development
+    vars:
+      VERSION:
+        sh: git describe --tags --always --dirty 2>/dev/null || echo "0.0.0-dev"
+    cmds:
+      - CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "-X {{.MODULE}}/cmd/apiserver/app.Version={{.VERSION}}" -o bin/insights-apiserver ./cmd/apiserver
+      - CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "-X {{.MODULE}}/cmd/controller/app.Version={{.VERSION}}" -o bin/insights-controller ./cmd/controller
+
+  dev-deploy:
+    desc: Build and deploy to Kind cluster
+    deps: [cluster-up, generate]
+    cmds:
+      - docker build -f Dockerfile.apiserver -t {{.APISERVER_IMG}} .
+      - docker build -f Dockerfile.controller -t {{.CONTROLLER_IMG}} .
+      - kind load docker-image {{.APISERVER_IMG}} --name {{.CLUSTER_NAME}}
+      - kind load docker-image {{.CONTROLLER_IMG}} --name {{.CLUSTER_NAME}}
+      - kustomize build config/apiserver | kubectl apply -f -
+      - kustomize build config/controller | kubectl apply -f -
+      - kubectl rollout status deployment/insights-apiserver -n insights-system --timeout=60s
+      - kubectl rollout status deployment/insights-controller -n insights-system --timeout=60s
+
+  dev-logs-apiserver:
+    desc: Show apiserver logs
+    cmds:
+      - kubectl logs -n insights-system -l app.kubernetes.io/component=apiserver -f
+
+  dev-logs-controller:
+    desc: Show controller logs
+    cmds:
+      - kubectl logs -n insights-system -l app.kubernetes.io/component=controller -f
+
+  dev-logs:
+    desc: Show logs for all insights components
+    cmds:
+      - kubectl logs -n insights-system -l app.kubernetes.io/part-of=insights -f
+
+  # Linting
+  lint:
+    desc: Run golangci-lint
+    deps: [golangci-lint]
+    cmds:
+      - ./bin/golangci-lint run
+
+  lint-fix:
+    desc: Run golangci-lint with auto-fix
+    deps: [golangci-lint]
+    cmds:
+      - ./bin/golangci-lint run --fix
+
+  # Tool installation
+  controller-gen:
+    desc: Download controller-gen locally if necessary
+    cmds:
+      - GOBIN={{.PWD}}/bin go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.17.2
+    status:
+      - test -f {{.CONTROLLER_GEN}}
+    vars:
+      PWD:
+        sh: pwd
+
+  openapi-gen:
+    desc: Download openapi-gen locally if necessary
+    cmds:
+      - GOBIN={{.PWD}}/bin go install k8s.io/kube-openapi/cmd/openapi-gen@latest
+    status:
+      - test -f {{.OPENAPI_GEN}}
+    vars:
+      PWD:
+        sh: pwd
+
+  envtest:
+    desc: Download setup-envtest locally if necessary
+    cmds:
+      - GOBIN={{.PWD}}/bin go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+    status:
+      - test -f {{.ENVTEST}}
+    vars:
+      PWD:
+        sh: pwd
+
+  golangci-lint:
+    desc: Download golangci-lint locally if necessary
+    cmds:
+      - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b ./bin {{.GOLANGCI_LINT_VERSION}}
+    status:
+      - test -f ./bin/golangci-lint
+
+  # Samples
+  apply-samples:
+    desc: Apply sample resources
+    cmds:
+      - kubectl apply -f config/samples/
+
+  delete-samples:
+    desc: Delete sample resources
+    cmds:
+      - kubectl delete -f config/samples/ --ignore-not-found
+
+  # Clean
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -rf bin/
+      - rm -f cover.out

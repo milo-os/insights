@@ -1,0 +1,6 @@
+# Development Dockerfile - uses pre-built binary from local build
+FROM gcr.io/distroless/static:nonroot
+WORKDIR /
+COPY bin/manager /insights-controller
+USER 65532:65532
+ENTRYPOINT ["/insights-controller"]

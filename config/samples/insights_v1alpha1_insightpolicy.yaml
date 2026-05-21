@@ -1,0 +1,56 @@
+apiVersion: insights.miloapis.com/v1alpha1
+kind: InsightPolicy
+metadata:
+  labels:
+    app.kubernetes.io/name: insights
+    app.kubernetes.io/managed-by: kustomize
+  name: deployment-best-practices
+spec:
+  selector:
+    apiVersion: apps/v1
+    kind: Deployment
+    namespaces:
+      - default
+    # Optional: filter by labels
+    # labelSelector:
+    #   matchLabels:
+    #     managed: "true"
+    # Optional: CEL expression to further filter resources
+    # matchExpression: "object.metadata.labels.exists(k, k == 'app')"
+
+  rules:
+    - name: no-resource-limits
+      # CEL condition - when true, creates an insight
+      condition: |
+        !has(object.spec.template.spec.containers) ||
+        object.spec.template.spec.containers.size() == 0 ||
+        !has(object.spec.template.spec.containers[0].resources) ||
+        !has(object.spec.template.spec.containers[0].resources.limits)
+      severity: warning
+      category: configuration
+      ttlSeconds: 3600
+      # Template strings with {{ }} CEL expression placeholders
+      messageTemplate: |
+        Deployment {{ object.metadata.name }} has no resource limits
+      descriptionTemplate: |
+        The deployment {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        does not have resource limits configured.
+
+        This can lead to:
+        - Resource contention with other workloads
+        - Unpredictable application behavior under load
+        - Difficulty in capacity planning
+
+    - name: single-replica
+      condition: |
+        has(object.spec.replicas) && object.spec.replicas == 1
+      severity: info
+      category: availability
+      ttlSeconds: 3600
+      messageTemplate: |
+        Deployment {{ object.metadata.name }} has only 1 replica
+      descriptionTemplate: |
+        The deployment {{ object.metadata.name }} is configured with a single replica.
+        Consider increasing replicas for better availability.
+        Current replicas: {{ object.spec.replicas }}
+

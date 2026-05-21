@@ -1,0 +1,18 @@
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1alpha1.insights.miloapis.com
+  labels:
+    app.kubernetes.io/name: insights
+    app.kubernetes.io/component: apiserver
+spec:
+  group: insights.miloapis.com
+  version: v1alpha1
+  service:
+    name: insights-apiserver
+    namespace: insights-system
+    port: 443
+  groupPriorityMinimum: 1000
+  versionPriority: 15
+  # Set to true for development, use caBundle in production
+  insecureSkipTLSVerify: true

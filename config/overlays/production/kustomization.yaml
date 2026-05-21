@@ -1,0 +1,59 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../apiserver
+  - ../../controller
+
+# Production-specific patches for the apiserver
+patches:
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: insights-apiserver
+        namespace: insights-system
+      spec:
+        replicas: 2
+        template:
+          spec:
+            containers:
+              - name: apiserver
+                resources:
+                  requests:
+                    cpu: 200m
+                    memory: 256Mi
+                  limits:
+                    cpu: "1"
+                    memory: 1Gi
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: insights-controller
+        namespace: insights-system
+      spec:
+        replicas: 2
+        template:
+          spec:
+            containers:
+              - name: controller
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 128Mi
+                  limits:
+                    cpu: "1"
+                    memory: 512Mi
+
+# Production image configuration
+# Override with actual production image during deployment:
+# kustomize edit set image insights-apiserver=ghcr.io/datum-cloud/insights-apiserver:v1.0.0
+# kustomize edit set image insights-controller=ghcr.io/datum-cloud/insights-controller:v1.0.0
+images:
+  - name: insights-apiserver
+    newName: insights-apiserver
+    newTag: latest
+  - name: insights-controller
+    newName: insights-controller
+    newTag: latest

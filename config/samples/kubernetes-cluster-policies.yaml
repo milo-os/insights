@@ -1,0 +1,808 @@
+---
+# Workload Health - Probes and health checks across all workload types
+apiVersion: insights.miloapis.com/v1alpha1
+kind: InsightPolicy
+metadata:
+  name: workload-health
+  labels:
+    app.kubernetes.io/name: insights
+    insights.miloapis.com/category: reliability
+spec:
+  selector:
+    apiVersion: apps/v1
+    kind: Deployment
+  rules:
+    - name: missing-liveness-probe
+      condition: |
+        has(object.spec.template.spec.containers) &&
+        object.spec.template.spec.containers.exists(c, !has(c.livenessProbe))
+      severity: warning
+      category: reliability
+      ttlSeconds: 3600
+      messageTemplate: |
+        Deployment {{ object.metadata.name }} missing liveness probe
+      descriptionTemplate: |
+        The deployment {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        has containers without liveness probes.
+
+        **Impact:** Kubernetes cannot detect broken containers for automatic restart.
+
+        **Recommendation:** Configure liveness probes for all containers.
+
+    - name: missing-readiness-probe
+      condition: |
+        has(object.spec.template.spec.containers) &&
+        object.spec.template.spec.containers.exists(c, !has(c.readinessProbe))
+      severity: warning
+      category: reliability
+      ttlSeconds: 3600
+      messageTemplate: |
+        Deployment {{ object.metadata.name }} missing readiness probe
+      descriptionTemplate: |
+        The deployment {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        has containers without readiness probes.
+
+        **Impact:** Traffic may route to pods not ready to handle requests.
+
+        **Recommendation:** Configure readiness probes to ensure healthy traffic routing.
+
+    - name: missing-startup-probe-slow-start
+      condition: |
+        has(object.spec.template.spec.containers) &&
+        object.spec.template.spec.containers.exists(c,
+          has(c.livenessProbe) &&
+          has(c.livenessProbe.initialDelaySeconds) &&
+          c.livenessProbe.initialDelaySeconds > 30 &&
+          !has(c.startupProbe)
+        )
+      severity: info
+      category: reliability
+      ttlSeconds: 3600
+      messageTemplate: |
+        Deployment {{ object.metadata.name }} may benefit from startup probe
+      descriptionTemplate: |
+        The deployment {{ object.metadata.name }} has a liveness probe with high
+        initialDelaySeconds (>30s) but no startup probe.
+
+        **Recommendation:** Use startupProbe for slow-starting containers instead
+        of high initialDelaySeconds on liveness probes.
+
+  suspended: false
+  resyncPeriodSeconds: 300
+
+---
+# Resource Management - Requests and limits for capacity planning
+apiVersion: insights.miloapis.com/v1alpha1
+kind: InsightPolicy
+metadata:
+  name: resource-management
+  labels:
+    app.kubernetes.io/name: insights
+    insights.miloapis.com/category: configuration
+spec:
+  selector:
+    apiVersion: apps/v1
+    kind: Deployment
+  rules:
+    - name: missing-resource-requests
+      condition: |
+        has(object.spec.template.spec.containers) &&
+        object.spec.template.spec.containers.exists(c,
+          !has(c.resources) || !has(c.resources.requests)
+        )
+      severity: warning
+      category: configuration
+      ttlSeconds: 3600
+      messageTemplate: |
+        Deployment {{ object.metadata.name }} missing resource requests
+      descriptionTemplate: |
+        The deployment {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        has containers without resource requests.
+
+        **Impact:** The scheduler cannot make optimal placement decisions,
+        potentially leading to resource contention and node overcommitment.
+
+        **Recommendation:** Set CPU and memory requests for all containers.
+
+    - name: missing-resource-limits
+      condition: |
+        has(object.spec.template.spec.containers) &&
+        object.spec.template.spec.containers.exists(c,
+          !has(c.resources) || !has(c.resources.limits)
+        )
+      severity: warning
+      category: configuration
+      ttlSeconds: 3600
+      messageTemplate: |
+        Deployment {{ object.metadata.name }} missing resource limits
+      descriptionTemplate: |
+        The deployment {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        has containers without resource limits.
+
+        **Impact:** Containers can consume unlimited resources, potentially
+        starving other workloads on the same node.
+
+        **Recommendation:** Set CPU and memory limits for all containers.
+
+    - name: requests-exceed-limits
+      condition: |
+        has(object.spec.template.spec.containers) &&
+        object.spec.template.spec.containers.exists(c,
+          has(c.resources) &&
+          has(c.resources.requests) &&
+          has(c.resources.limits) &&
+          has(c.resources.requests.memory) &&
+          has(c.resources.limits.memory)
+        )
+      severity: info
+      category: configuration
+      ttlSeconds: 3600
+      messageTemplate: |
+        Deployment {{ object.metadata.name }} has resource constraints configured
+      descriptionTemplate: |
+        The deployment {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        has both resource requests and limits configured.
+
+        **Status:** Resource management is properly configured.
+
+  suspended: false
+  resyncPeriodSeconds: 300
+
+---
+# High Availability - Replicas, distribution, and redundancy
+apiVersion: insights.miloapis.com/v1alpha1
+kind: InsightPolicy
+metadata:
+  name: high-availability
+  labels:
+    app.kubernetes.io/name: insights
+    insights.miloapis.com/category: availability
+spec:
+  selector:
+    apiVersion: apps/v1
+    kind: Deployment
+  rules:
+    - name: single-replica
+      condition: |
+        has(object.spec.replicas) && object.spec.replicas == 1
+      severity: info
+      category: availability
+      ttlSeconds: 3600
+      messageTemplate: |
+        Deployment {{ object.metadata.name }} running single replica
+      descriptionTemplate: |
+        The deployment {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        is running with only 1 replica.
+
+        **Impact:** No redundancy during updates, node failures, or pod evictions.
+
+        **Recommendation:** Run at least 2-3 replicas for production workloads
+        and configure a PodDisruptionBudget.
+
+    - name: no-pod-anti-affinity
+      condition: |
+        has(object.spec.replicas) &&
+        object.spec.replicas > 1 &&
+        (!has(object.spec.template.spec.affinity) ||
+         !has(object.spec.template.spec.affinity.podAntiAffinity))
+      severity: info
+      category: availability
+      ttlSeconds: 3600
+      messageTemplate: |
+        Deployment {{ object.metadata.name }} missing pod anti-affinity
+      descriptionTemplate: |
+        The deployment {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        has multiple replicas but no pod anti-affinity rules.
+
+        **Impact:** All replicas may be scheduled on the same node.
+        A single node failure could take down all replicas.
+
+        **Recommendation:** Configure podAntiAffinity to spread replicas
+        across nodes or availability zones.
+
+    - name: no-topology-spread
+      condition: |
+        has(object.spec.replicas) &&
+        object.spec.replicas > 2 &&
+        !has(object.spec.template.spec.topologySpreadConstraints)
+      severity: info
+      category: availability
+      ttlSeconds: 3600
+      messageTemplate: |
+        Deployment {{ object.metadata.name }} missing topology spread constraints
+      descriptionTemplate: |
+        The deployment {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        has 3+ replicas but no topology spread constraints.
+
+        **Recommendation:** Use topologySpreadConstraints for fine-grained
+        control over pod distribution across zones and nodes.
+
+  suspended: false
+  resyncPeriodSeconds: 300
+
+---
+# Security Posture - Security context and privilege escalation
+apiVersion: insights.miloapis.com/v1alpha1
+kind: InsightPolicy
+metadata:
+  name: security-posture
+  labels:
+    app.kubernetes.io/name: insights
+    insights.miloapis.com/category: security
+spec:
+  selector:
+    apiVersion: apps/v1
+    kind: Deployment
+  rules:
+    - name: privileged-container
+      condition: |
+        has(object.spec.template.spec.containers) &&
+        object.spec.template.spec.containers.exists(c,
+          has(c.securityContext) &&
+          has(c.securityContext.privileged) &&
+          c.securityContext.privileged == true
+        )
+      severity: critical
+      category: security
+      ttlSeconds: 0
+      messageTemplate: |
+        Deployment {{ object.metadata.name }} runs privileged containers
+      descriptionTemplate: |
+        The deployment {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        has containers running in privileged mode.
+
+        **Risk:** Full host system access, bypassing security boundaries.
+
+        **Recommendation:** Remove privileged mode. Use specific capabilities instead.
+
+    - name: runs-as-root
+      condition: |
+        has(object.spec.template.spec.containers) &&
+        object.spec.template.spec.containers.exists(c,
+          !has(c.securityContext) ||
+          !has(c.securityContext.runAsNonRoot) ||
+          c.securityContext.runAsNonRoot == false
+        )
+      severity: warning
+      category: security
+      ttlSeconds: 3600
+      messageTemplate: |
+        Deployment {{ object.metadata.name }} may run as root
+      descriptionTemplate: |
+        The deployment {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        does not explicitly prevent running as root.
+
+        **Risk:** Increased attack surface if container is compromised.
+
+        **Recommendation:** Set securityContext.runAsNonRoot: true.
+
+    - name: writable-root-filesystem
+      condition: |
+        has(object.spec.template.spec.containers) &&
+        object.spec.template.spec.containers.exists(c,
+          !has(c.securityContext) ||
+          !has(c.securityContext.readOnlyRootFilesystem) ||
+          c.securityContext.readOnlyRootFilesystem == false
+        )
+      severity: info
+      category: security
+      ttlSeconds: 3600
+      messageTemplate: |
+        Deployment {{ object.metadata.name }} has writable root filesystem
+      descriptionTemplate: |
+        The deployment {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        does not use a read-only root filesystem.
+
+        **Recommendation:** Set securityContext.readOnlyRootFilesystem: true.
+        Use emptyDir volumes for directories needing write access.
+
+    - name: no-security-context
+      condition: |
+        !has(object.spec.template.spec.securityContext) &&
+        has(object.spec.template.spec.containers) &&
+        object.spec.template.spec.containers.exists(c, !has(c.securityContext))
+      severity: info
+      category: security
+      ttlSeconds: 3600
+      messageTemplate: |
+        Deployment {{ object.metadata.name }} missing security context
+      descriptionTemplate: |
+        The deployment {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        has no security context at pod or container level.
+
+        **Recommendation:** Define securityContext to enforce security policies.
+
+  suspended: false
+  resyncPeriodSeconds: 300
+
+---
+# Pod Security - Host-level access (standalone pods and system workloads)
+apiVersion: insights.miloapis.com/v1alpha1
+kind: InsightPolicy
+metadata:
+  name: host-access
+  labels:
+    app.kubernetes.io/name: insights
+    insights.miloapis.com/category: security
+spec:
+  selector:
+    apiVersion: v1
+    kind: Pod
+  rules:
+    - name: host-network
+      condition: |
+        has(object.spec.hostNetwork) && object.spec.hostNetwork == true
+      severity: warning
+      category: security
+      ttlSeconds: 3600
+      messageTemplate: |
+        Pod {{ object.metadata.name }} uses host networking
+      descriptionTemplate: |
+        The pod {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        uses the host network namespace.
+
+        **Risk:** Direct access to node network interfaces, bypasses network policies.
+
+        **Recommendation:** Use Services and Ingress for external access.
+
+    - name: host-pid
+      condition: |
+        has(object.spec.hostPID) && object.spec.hostPID == true
+      severity: critical
+      category: security
+      ttlSeconds: 0
+      messageTemplate: |
+        Pod {{ object.metadata.name }} uses host PID namespace
+      descriptionTemplate: |
+        The pod {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        uses the host PID namespace.
+
+        **Risk:** Can see and interact with all node processes.
+
+        **Recommendation:** Remove hostPID unless debugging.
+
+    - name: host-path-volume
+      condition: |
+        has(object.spec.volumes) &&
+        object.spec.volumes.exists(v, has(v.hostPath))
+      severity: warning
+      category: security
+      ttlSeconds: 3600
+      messageTemplate: |
+        Pod {{ object.metadata.name }} mounts host filesystem
+      descriptionTemplate: |
+        The pod {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        mounts host filesystem paths.
+
+        **Risk:** May expose sensitive host data or enable container escape.
+
+        **Recommendation:** Use PersistentVolumes or emptyDir instead.
+
+  suspended: false
+  resyncPeriodSeconds: 300
+
+---
+# Network Exposure - Services and ingress configuration
+apiVersion: insights.miloapis.com/v1alpha1
+kind: InsightPolicy
+metadata:
+  name: network-exposure
+  labels:
+    app.kubernetes.io/name: insights
+    insights.miloapis.com/category: network
+spec:
+  selector:
+    apiVersion: v1
+    kind: Service
+  rules:
+    - name: loadbalancer-service
+      condition: |
+        has(object.spec.type) && object.spec.type == "LoadBalancer"
+      severity: info
+      category: cost
+      ttlSeconds: 3600
+      messageTemplate: |
+        Service {{ object.metadata.name }} is type LoadBalancer
+      descriptionTemplate: |
+        The service {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        is a LoadBalancer type, provisioning a cloud load balancer.
+
+        **Cost:** LoadBalancer services incur cloud provider charges.
+
+        **Inventory:** Track for cost management.
+
+    - name: nodeport-service
+      condition: |
+        has(object.spec.type) && object.spec.type == "NodePort"
+      severity: info
+      category: network
+      ttlSeconds: 3600
+      messageTemplate: |
+        Service {{ object.metadata.name }} uses NodePort
+      descriptionTemplate: |
+        The service {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        exposes ports on all cluster nodes.
+
+        **Security:** Ensure firewall rules restrict access appropriately.
+
+    - name: external-ip-service
+      condition: |
+        has(object.spec.externalIPs) && object.spec.externalIPs.size() > 0
+      severity: warning
+      category: security
+      ttlSeconds: 3600
+      messageTemplate: |
+        Service {{ object.metadata.name }} has external IPs
+      descriptionTemplate: |
+        The service {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        has externalIPs configured.
+
+        **Security:** External IPs bypass load balancer security controls.
+        Ensure this is intentional and properly secured.
+
+  suspended: false
+  resyncPeriodSeconds: 300
+
+---
+# Ingress Security - TLS and routing configuration
+apiVersion: insights.miloapis.com/v1alpha1
+kind: InsightPolicy
+metadata:
+  name: ingress-configuration
+  labels:
+    app.kubernetes.io/name: insights
+    insights.miloapis.com/category: network
+spec:
+  selector:
+    apiVersion: networking.k8s.io/v1
+    kind: Ingress
+  rules:
+    - name: missing-tls
+      condition: |
+        !has(object.spec.tls) || object.spec.tls.size() == 0
+      severity: warning
+      category: security
+      ttlSeconds: 3600
+      messageTemplate: |
+        Ingress {{ object.metadata.name }} has no TLS configured
+      descriptionTemplate: |
+        The Ingress {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        does not have TLS configured.
+
+        **Risk:** Traffic is unencrypted (HTTP only).
+
+        **Recommendation:** Configure TLS with cert-manager for automatic certificates.
+
+    - name: wildcard-or-missing-host
+      condition: |
+        has(object.spec.rules) &&
+        object.spec.rules.exists(r, !has(r.host) || r.host == "" || r.host.startsWith("*"))
+      severity: info
+      category: configuration
+      ttlSeconds: 3600
+      messageTemplate: |
+        Ingress {{ object.metadata.name }} uses wildcard or default host
+      descriptionTemplate: |
+        The Ingress {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        has rules without specific hostnames.
+
+        **Note:** Matches all incoming requests on those paths.
+
+        **Recommendation:** Specify explicit hostnames for each rule.
+
+  suspended: false
+  resyncPeriodSeconds: 300
+
+---
+# Stateful Workloads - StatefulSets and persistent storage
+apiVersion: insights.miloapis.com/v1alpha1
+kind: InsightPolicy
+metadata:
+  name: stateful-workloads
+  labels:
+    app.kubernetes.io/name: insights
+    insights.miloapis.com/category: storage
+spec:
+  selector:
+    apiVersion: apps/v1
+    kind: StatefulSet
+  rules:
+    - name: single-replica
+      condition: |
+        has(object.spec.replicas) && object.spec.replicas == 1
+      severity: warning
+      category: availability
+      ttlSeconds: 3600
+      messageTemplate: |
+        StatefulSet {{ object.metadata.name }} has single replica
+      descriptionTemplate: |
+        The StatefulSet {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        runs with only 1 replica.
+
+        **Risk:** No high availability for stateful workloads (databases, queues).
+
+        **Recommendation:** Run multiple replicas with data replication for production.
+
+    - name: pvc-delete-on-statefulset-delete
+      condition: |
+        !has(object.spec.persistentVolumeClaimRetentionPolicy) ||
+        (has(object.spec.persistentVolumeClaimRetentionPolicy.whenDeleted) &&
+         object.spec.persistentVolumeClaimRetentionPolicy.whenDeleted == "Delete")
+      severity: warning
+      category: data-protection
+      ttlSeconds: 3600
+      messageTemplate: |
+        StatefulSet {{ object.metadata.name }} deletes PVCs on removal
+      descriptionTemplate: |
+        The StatefulSet {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        will delete PersistentVolumeClaims when removed.
+
+        **Risk:** Accidental StatefulSet deletion causes data loss.
+
+        **Recommendation:** Set persistentVolumeClaimRetentionPolicy.whenDeleted: Retain.
+
+    - name: missing-resource-limits
+      condition: |
+        has(object.spec.template.spec.containers) &&
+        object.spec.template.spec.containers.exists(c,
+          !has(c.resources) || !has(c.resources.limits)
+        )
+      severity: warning
+      category: configuration
+      ttlSeconds: 3600
+      messageTemplate: |
+        StatefulSet {{ object.metadata.name }} missing resource limits
+      descriptionTemplate: |
+        The StatefulSet {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        has containers without resource limits.
+
+        **Impact:** Stateful workloads without limits may be OOM-killed unexpectedly.
+
+  suspended: false
+  resyncPeriodSeconds: 300
+
+---
+# DaemonSet Configuration - Node-level workloads
+apiVersion: insights.miloapis.com/v1alpha1
+kind: InsightPolicy
+metadata:
+  name: daemonset-workloads
+  labels:
+    app.kubernetes.io/name: insights
+    insights.miloapis.com/category: configuration
+spec:
+  selector:
+    apiVersion: apps/v1
+    kind: DaemonSet
+  rules:
+    - name: missing-resource-limits
+      condition: |
+        has(object.spec.template.spec.containers) &&
+        object.spec.template.spec.containers.exists(c,
+          !has(c.resources) || !has(c.resources.limits)
+        )
+      severity: warning
+      category: configuration
+      ttlSeconds: 3600
+      messageTemplate: |
+        DaemonSet {{ object.metadata.name }} missing resource limits
+      descriptionTemplate: |
+        The DaemonSet {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        has containers without resource limits.
+
+        **Impact:** DaemonSets run on every node. Without limits, they compete
+        with application workloads for resources.
+
+        **Recommendation:** Set conservative limits for DaemonSet pods.
+
+    - name: missing-priority-class
+      condition: |
+        !has(object.spec.template.spec.priorityClassName) ||
+        object.spec.template.spec.priorityClassName == ""
+      severity: info
+      category: configuration
+      ttlSeconds: 3600
+      messageTemplate: |
+        DaemonSet {{ object.metadata.name }} has no priority class
+      descriptionTemplate: |
+        The DaemonSet {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        has no PriorityClass configured.
+
+        **Note:** DaemonSets often run critical infrastructure. Without priority,
+        they may be evicted before application pods.
+
+        **Recommendation:** Set system-node-critical or system-cluster-critical.
+
+  suspended: false
+  resyncPeriodSeconds: 300
+
+---
+# Batch Workloads - Jobs and CronJobs
+apiVersion: insights.miloapis.com/v1alpha1
+kind: InsightPolicy
+metadata:
+  name: batch-workloads
+  labels:
+    app.kubernetes.io/name: insights
+    insights.miloapis.com/category: configuration
+spec:
+  selector:
+    apiVersion: batch/v1
+    kind: CronJob
+  rules:
+    - name: allows-concurrent-runs
+      condition: |
+        !has(object.spec.concurrencyPolicy) ||
+        object.spec.concurrencyPolicy == "Allow"
+      severity: info
+      category: configuration
+      ttlSeconds: 3600
+      messageTemplate: |
+        CronJob {{ object.metadata.name }} allows concurrent runs
+      descriptionTemplate: |
+        The CronJob {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        allows concurrent job executions.
+
+        **Note:** Multiple instances run if jobs overlap.
+
+        **Recommendation:** Set concurrencyPolicy: Forbid or Replace if needed.
+
+    - name: high-history-retention
+      condition: |
+        (has(object.spec.successfulJobsHistoryLimit) &&
+         object.spec.successfulJobsHistoryLimit > 10) ||
+        (has(object.spec.failedJobsHistoryLimit) &&
+         object.spec.failedJobsHistoryLimit > 10)
+      severity: info
+      category: configuration
+      ttlSeconds: 3600
+      messageTemplate: |
+        CronJob {{ object.metadata.name }} retains many job histories
+      descriptionTemplate: |
+        The CronJob {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        retains more than 10 job histories.
+
+        **Impact:** Completed Job objects accumulate, consuming etcd storage.
+
+        **Recommendation:** Set history limits to 3-5.
+
+    - name: no-deadline
+      condition: |
+        has(object.spec.jobTemplate.spec) &&
+        !has(object.spec.jobTemplate.spec.activeDeadlineSeconds)
+      severity: info
+      category: configuration
+      ttlSeconds: 3600
+      messageTemplate: |
+        CronJob {{ object.metadata.name }} has no deadline
+      descriptionTemplate: |
+        The CronJob {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        has no activeDeadlineSeconds configured.
+
+        **Note:** Jobs can run indefinitely if they hang.
+
+        **Recommendation:** Set activeDeadlineSeconds for timeout protection.
+
+  suspended: false
+  resyncPeriodSeconds: 600
+
+---
+# Namespace Governance - Labels and resource tracking
+apiVersion: insights.miloapis.com/v1alpha1
+kind: InsightPolicy
+metadata:
+  name: namespace-governance
+  labels:
+    app.kubernetes.io/name: insights
+    insights.miloapis.com/category: governance
+spec:
+  selector:
+    apiVersion: v1
+    kind: Namespace
+    matchExpression: |
+      object.metadata.name != "kube-system" &&
+      object.metadata.name != "kube-public" &&
+      object.metadata.name != "kube-node-lease" &&
+      object.metadata.name != "default"
+  rules:
+    - name: missing-owner-label
+      condition: |
+        !has(object.metadata.labels) ||
+        !(object.metadata.labels.exists(k, k == "owner") ||
+          object.metadata.labels.exists(k, k == "team"))
+      severity: info
+      category: governance
+      ttlSeconds: 3600
+      messageTemplate: |
+        Namespace {{ object.metadata.name }} has no owner label
+      descriptionTemplate: |
+        The namespace {{ object.metadata.name }} does not have an "owner" or "team" label.
+
+        **Impact:** Difficult to track responsibility for resources.
+
+        **Recommendation:** Add labels like owner: team-name or team: platform.
+
+    - name: missing-environment-label
+      condition: |
+        !has(object.metadata.labels) ||
+        !(object.metadata.labels.exists(k, k == "environment") ||
+          object.metadata.labels.exists(k, k == "env"))
+      severity: info
+      category: governance
+      ttlSeconds: 3600
+      messageTemplate: |
+        Namespace {{ object.metadata.name }} has no environment label
+      descriptionTemplate: |
+        The namespace {{ object.metadata.name }} does not have an environment label.
+
+        **Recommendation:** Add labels like environment: production or env: staging.
+
+  suspended: false
+  resyncPeriodSeconds: 600
+
+---
+# Autoscaling Configuration - HPA settings
+apiVersion: insights.miloapis.com/v1alpha1
+kind: InsightPolicy
+metadata:
+  name: autoscaling
+  labels:
+    app.kubernetes.io/name: insights
+    insights.miloapis.com/category: configuration
+spec:
+  selector:
+    apiVersion: autoscaling/v2
+    kind: HorizontalPodAutoscaler
+  rules:
+    - name: high-max-replicas
+      condition: |
+        has(object.spec.maxReplicas) && object.spec.maxReplicas > 50
+      severity: info
+      category: cost
+      ttlSeconds: 3600
+      messageTemplate: |
+        HPA {{ object.metadata.name }} allows >50 replicas
+      descriptionTemplate: |
+        The HPA {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        allows scaling to more than 50 replicas.
+
+        **Cost:** High max replicas can cause significant cost increases.
+
+        **Recommendation:** Review if appropriate and set namespace limits.
+
+    - name: min-equals-max
+      condition: |
+        has(object.spec.minReplicas) &&
+        has(object.spec.maxReplicas) &&
+        object.spec.minReplicas == object.spec.maxReplicas
+      severity: warning
+      category: configuration
+      ttlSeconds: 3600
+      messageTemplate: |
+        HPA {{ object.metadata.name }} cannot scale (min == max)
+      descriptionTemplate: |
+        The HPA {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        has minReplicas equal to maxReplicas.
+
+        **Issue:** HPA cannot adjust replica count.
+
+        **Recommendation:** Remove HPA or adjust min/max to enable scaling.
+
+    - name: low-min-replicas
+      condition: |
+        has(object.spec.minReplicas) && object.spec.minReplicas == 1
+      severity: info
+      category: availability
+      ttlSeconds: 3600
+      messageTemplate: |
+        HPA {{ object.metadata.name }} allows scaling to 1 replica
+      descriptionTemplate: |
+        The HPA {{ object.metadata.name }} in namespace {{ object.metadata.namespace }}
+        allows scaling down to 1 replica.
+
+        **Note:** During low traffic, availability is reduced to a single pod.
+
+        **Recommendation:** Set minReplicas >= 2 for production workloads.
+
+  suspended: false
+  resyncPeriodSeconds: 300

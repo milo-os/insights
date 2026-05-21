@@ -1,0 +1,24 @@
+apiVersion: insights.miloapis.com/v1alpha1
+kind: Insight
+metadata:
+  labels:
+    app.kubernetes.io/name: insights
+    app.kubernetes.io/managed-by: kustomize
+  name: deploy-nginx-no-limits
+  namespace: default
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: nginx
+    namespace: default
+  severity: warning
+  message: "Deployment nginx has no resource limits configured"
+  description: |
+    The deployment does not have CPU/memory limits configured.
+    This can lead to resource contention and affect other workloads.
+  category: configuration
+  source:
+    type: Manual
+    component: config-auditor
+  ttlSeconds: 86400
