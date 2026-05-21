@@ -1,0 +1,10 @@
+# Runtime stage - uses pre-built binary from Tilt
+FROM gcr.io/distroless/static:nonroot
+
+WORKDIR /
+
+COPY bin/insights-apiserver /insights-apiserver
+
+USER 65532:65532
+
+ENTRYPOINT ["/insights-apiserver"]

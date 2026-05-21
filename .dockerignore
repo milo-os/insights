@@ -1,0 +1,12 @@
+# More info: https://docs.docker.com/engine/reference/builder/#dockerignore-file
+# Ignore most things except what we need for builds
+.git
+.github
+.claude
+*.md
+!README.md
+test/
+ui/
+config/
+hack/
+docs/

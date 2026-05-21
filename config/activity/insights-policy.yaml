@@ -1,0 +1,114 @@
+apiVersion: activity.miloapis.com/v1alpha1
+kind: ActivityPolicy
+metadata:
+  name: insights
+  namespace: insights-system
+spec:
+  resource:
+    apiGroup: insights.miloapis.com
+    kind: Insight
+
+  auditRules:
+    # Creation
+    - match: "audit.verb == 'create'"
+      summary: "{{ actor }} created insight {{ link(audit.objectRef.name, audit.responseObject) }}"
+
+    # Acknowledgement
+    - match: "audit.verb == 'create' && audit.objectRef.subresource == 'acknowledge'"
+      summary: "{{ actor }} acknowledged {{ link('insight ' + audit.objectRef.name, audit.responseObject) }}"
+
+    # Unacknowledgement
+    - match: "audit.verb == 'create' && audit.objectRef.subresource == 'unacknowledge'"
+      summary: "{{ actor }} unacknowledged {{ link('insight ' + audit.objectRef.name, audit.responseObject) }}"
+
+    # Snooze
+    - match: "audit.verb == 'create' && audit.objectRef.subresource == 'snooze'"
+      summary: "{{ actor }} snoozed {{ link('insight ' + audit.objectRef.name, audit.responseObject) }}"
+
+    # Resolve
+    - match: "audit.verb == 'create' && audit.objectRef.subresource == 'resolve'"
+      summary: "{{ actor }} resolved {{ link('insight ' + audit.objectRef.name, audit.responseObject) }}"
+
+    # Assignment
+    - match: "audit.verb == 'create' && audit.objectRef.subresource == 'assign'"
+      summary: "{{ actor }} assigned {{ link('insight ' + audit.objectRef.name, audit.responseObject) }} to {{ audit.requestObject.assignee.name }}"
+
+    # Status update (fallback for direct status changes)
+    - match: "audit.verb == 'update' && audit.objectRef.subresource == 'status'"
+      summary: "{{ actor }} updated status of {{ link('insight ' + audit.objectRef.name, audit.responseObject) }}"
+
+    # Deletion
+    - match: "audit.verb == 'delete'"
+      summary: "{{ actor }} deleted insight {{ audit.objectRef.name }}"
+
+  eventRules:
+    # Snooze expired (emitted by controller)
+    - match: "event.reason == 'SnoozeExpired'"
+      summary: "Snooze expired for {{ link('insight ' + event.regarding.name, event.regarding) }}, returned to active state"
+
+    # TTL expired
+    - match: "event.reason == 'TTLExpired'"
+      summary: "{{ link('Insight ' + event.regarding.name, event.regarding) }} expired due to TTL"
+
+    # Auto-resolved (condition no longer detected)
+    - match: "event.reason == 'AutoResolved'"
+      summary: "{{ link('Insight ' + event.regarding.name, event.regarding) }} auto-resolved: condition no longer detected"
+
+    # Muted
+    - match: "event.reason == 'Muted'"
+      summary: "{{ link('Insight ' + event.regarding.name, event.regarding) }} was muted by {{ event.message }}"
+
+    # Unmuted
+    - match: "event.reason == 'Unmuted'"
+      summary: "{{ link('Insight ' + event.regarding.name, event.regarding) }} was unmuted"
+---
+apiVersion: activity.miloapis.com/v1alpha1
+kind: ActivityPolicy
+metadata:
+  name: insight-policies
+  namespace: insights-system
+spec:
+  resource:
+    apiGroup: insights.miloapis.com
+    kind: InsightPolicy
+
+  auditRules:
+    - match: "audit.verb == 'create'"
+      summary: "{{ actor }} created policy {{ link(audit.objectRef.name, audit.responseObject) }}"
+
+    - match: "audit.verb == 'update'"
+      summary: "{{ actor }} updated policy {{ link(audit.objectRef.name, audit.responseObject) }}"
+
+    - match: "audit.verb == 'delete'"
+      summary: "{{ actor }} deleted policy {{ audit.objectRef.name }}"
+
+  eventRules:
+    - match: "event.reason == 'PolicySuspended'"
+      summary: "{{ link('Policy ' + event.regarding.name, event.regarding) }} was suspended"
+
+    - match: "event.reason == 'PolicyResumed'"
+      summary: "{{ link('Policy ' + event.regarding.name, event.regarding) }} was resumed"
+---
+apiVersion: activity.miloapis.com/v1alpha1
+kind: ActivityPolicy
+metadata:
+  name: insight-mute-rules
+  namespace: insights-system
+spec:
+  resource:
+    apiGroup: insights.miloapis.com
+    kind: InsightMuteRule
+
+  auditRules:
+    - match: "audit.verb == 'create'"
+      summary: "{{ actor }} created mute rule {{ link(audit.objectRef.name, audit.responseObject) }}"
+
+    - match: "audit.verb == 'update'"
+      summary: "{{ actor }} updated mute rule {{ link(audit.objectRef.name, audit.responseObject) }}"
+
+    - match: "audit.verb == 'delete'"
+      summary: "{{ actor }} deleted mute rule {{ audit.objectRef.name }}"
+
+  eventRules:
+    - match: "event.reason == 'MuteRuleExpired'"
+      summary: "{{ link('Mute rule ' + event.regarding.name, event.regarding) }} expired"

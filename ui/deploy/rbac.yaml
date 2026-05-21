@@ -1,0 +1,30 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: insights-ui
+rules:
+  # Read/write access to Insights
+  - apiGroups: ["insights.miloapis.com"]
+    resources: ["insights"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Read/write access to InsightPolicies
+  - apiGroups: ["insights.miloapis.com"]
+    resources: ["insightpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Read access to common resources for target reference display
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: insights-ui
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: insights-ui
+subjects:
+  - kind: ServiceAccount
+    name: insights-ui
+    namespace: insights-system

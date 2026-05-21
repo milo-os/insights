@@ -1,0 +1,104 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: insights-controller
+  labels:
+    app.kubernetes.io/name: insights
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/part-of: insights
+rules:
+  # Manage InsightPolicies (cluster-scoped)
+  - apiGroups:
+      - insights.miloapis.com
+    resources:
+      - insightpolicies
+    verbs:
+      - get
+      - list
+      - watch
+      - update
+      - patch
+  # Update InsightPolicy status
+  - apiGroups:
+      - insights.miloapis.com
+    resources:
+      - insightpolicies/status
+    verbs:
+      - get
+      - update
+      - patch
+  # Full access to Insights (namespace-scoped)
+  - apiGroups:
+      - insights.miloapis.com
+    resources:
+      - insights
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+      - deletecollection
+  # Update Insight status
+  - apiGroups:
+      - insights.miloapis.com
+    resources:
+      - insights/status
+    verbs:
+      - get
+      - update
+      - patch
+  # Read InsightMuteRules
+  - apiGroups:
+      - insights.miloapis.com
+    resources:
+      - insightmuterules
+    verbs:
+      - get
+      - list
+      - watch
+  # Update InsightMuteRule status
+  - apiGroups:
+      - insights.miloapis.com
+    resources:
+      - insightmuterules/status
+    verbs:
+      - get
+      - update
+      - patch
+  # Watch target resources that policies evaluate against
+  - apiGroups:
+      - "*"
+    resources:
+      - "*"
+    verbs:
+      - get
+      - list
+      - watch
+  # Emit events for controller activity
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: insights-controller
+  labels:
+    app.kubernetes.io/name: insights
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/part-of: insights
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: insights-controller
+subjects:
+  - kind: ServiceAccount
+    name: insights-controller
+    namespace: insights-system

@@ -1,0 +1,123 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Datum Light Theme - Based on Glacier Mist */
+    --background: 40 7% 91%;
+    --foreground: 212 60% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 212 60% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 212 60% 12%;
+
+    /* Primary - Midnight Fjord */
+    --primary: 212 60% 12%;
+    --primary-foreground: 68 80% 79%;
+
+    /* Secondary - Pine Forge */
+    --secondary: 144 14% 35%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 40 7% 93%;
+    --muted-foreground: 212 30% 35%;
+
+    /* Accent - Aurora Moss */
+    --accent: 68 80% 79%;
+    --accent-foreground: 212 60% 12%;
+
+    /* Destructive - Canyon Clay inspired */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 40 7% 85%;
+    --input: 40 7% 85%;
+    --ring: 68 80% 79%;
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    /* Datum Dark Theme - Based on Midnight Fjord */
+    --background: 212 60% 12%;
+    --foreground: 40 7% 91%;
+
+    --card: 212 50% 16%;
+    --card-foreground: 40 7% 91%;
+
+    --popover: 212 50% 16%;
+    --popover-foreground: 40 7% 91%;
+
+    /* Primary - Aurora Moss */
+    --primary: 68 80% 79%;
+    --primary-foreground: 212 60% 12%;
+
+    /* Secondary - Pine Forge lighter */
+    --secondary: 144 14% 45%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 212 40% 20%;
+    --muted-foreground: 40 7% 70%;
+
+    /* Accent - Blush Quartz */
+    --accent: 0 38% 87%;
+    --accent-foreground: 212 60% 12%;
+
+    /* Destructive */
+    --destructive: 0 62% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 212 40% 25%;
+    --input: 212 40% 25%;
+    --ring: 68 80% 79%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+/* Custom scrollbar for Datum brand */
+@layer utilities {
+  .scrollbar-datum {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+  }
+
+  .scrollbar-datum::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scrollbar-datum::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-datum::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 4px;
+  }
+
+  .scrollbar-datum::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.5);
+  }
+}
+
+/* Severity indicator animations */
+@keyframes pulse-critical {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.animate-pulse-critical {
+  animation: pulse-critical 2s ease-in-out infinite;
+}

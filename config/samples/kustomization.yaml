@@ -1,0 +1,6 @@
+## Append samples of your project ##
+resources:
+- insights_v1alpha1_insight.yaml
+- insights_v1alpha1_insightpolicy.yaml
+- kubernetes-cluster-policies.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

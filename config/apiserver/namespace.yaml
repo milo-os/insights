@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: insights-system
+  labels:
+    app.kubernetes.io/name: insights
+    app.kubernetes.io/component: apiserver

@@ -1,0 +1,44 @@
+version: "3"
+
+tasks:
+  generate:
+    desc: Generate deepcopy and register functions
+    cmds:
+      - go generate ./pkg/apis/...
+      - controller-gen object:headerFile="hack/boilerplate.go.txt" paths="./pkg/apis/..."
+
+  build:
+    desc: Build the apiserver binary
+    cmds:
+      - go build -o bin/insights-apiserver ./cmd/apiserver
+
+  run:
+    desc: Run the apiserver locally
+    deps: [build]
+    cmds:
+      - ./bin/insights-apiserver --etcd-servers=http://localhost:2379 --secure-port=8443
+
+  docker-build:
+    desc: Build the apiserver Docker image
+    cmds:
+      - docker build -f Dockerfile.apiserver -t insights-apiserver:latest .
+
+  deploy:
+    desc: Deploy the apiserver to the cluster
+    cmds:
+      - kubectl apply -k config/apiserver
+
+  undeploy:
+    desc: Remove the apiserver from the cluster
+    cmds:
+      - kubectl delete -k config/apiserver
+
+  test:
+    desc: Run tests
+    cmds:
+      - go test ./pkg/... ./internal/... -coverprofile cover.out
+
+  lint:
+    desc: Run linter
+    cmds:
+      - golangci-lint run ./pkg/... ./internal/... ./cmd/...
